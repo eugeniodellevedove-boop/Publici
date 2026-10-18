@@ -1,0 +1,351 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#ff7e5f">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<title>Yes! – La tua dose di motivazione</title>
+<style>
+  :root {
+    --bg1: #ff7e5f; --bg2: #feb47b; --card: rgba(255,255,255,.18);
+    --text: #fff; --accent: #fff; --accent-text: #c2410c;
+  }
+  [data-theme="blu"]    { --bg1:#4facfe; --bg2:#00f2fe; --accent-text:#0369a1; }
+  [data-theme="viola"]  { --bg1:#8e2de2; --bg2:#d16ba5; --accent-text:#6b21a8; }
+  [data-theme="verde"]  { --bg1:#11998e; --bg2:#38ef7d; --accent-text:#0f766e; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text);
+    background: linear-gradient(135deg, var(--bg1), var(--bg2)); background-attachment: fixed;
+    transition: background .6s;
+  }
+  main { width: 100%; max-width: 640px; padding: 24px 16px 48px; }
+  header { display:flex; justify-content:space-between; align-items:center; margin-bottom: 20px; }
+  h1 { margin:0; font-size: 1.6rem; letter-spacing:.5px; }
+  .themes button { width:22px; height:22px; border-radius:50%; border:2px solid #fff; margin-left:6px; cursor:pointer; padding:0; }
+  .card { background: var(--card); backdrop-filter: blur(10px); border-radius: 20px; padding: 24px; margin-bottom: 16px; box-shadow: 0 8px 32px rgba(0,0,0,.15); }
+  .quote { font-size: clamp(1.3rem, 4.5vw, 1.8rem); line-height:1.4; font-weight:600; margin:0 0 12px; min-height: 5.5em; display:flex; align-items:center; }
+  .author { opacity:.9; font-style: italic; margin-bottom: 18px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; }
+  button.btn {
+    background: var(--accent); color: var(--accent-text); border:0; border-radius: 999px;
+    padding: 12px 20px; font-size: 1rem; font-weight:700; cursor:pointer; transition: transform .1s;
+  }
+  button.btn:active { transform: scale(.95); }
+  button.btn.ghost { background: transparent; color:#fff; border:2px solid #fff; }
+  h2 { margin:0 0 12px; font-size:1.1rem; }
+  .stats { display:flex; justify-content:space-around; text-align:center; }
+  .stats b { display:block; font-size:2rem; }
+  .goal-form { display:flex; gap:8px; }
+  input[type=text] { flex:1; border:0; border-radius:999px; padding:12px 16px; font-size:1rem; }
+  ul { list-style:none; padding:0; margin:12px 0 0; }
+  li { display:flex; align-items:center; gap:10px; padding:10px 0; border-top:1px solid rgba(255,255,255,.3); }
+  li.done span { text-decoration: line-through; opacity:.7; }
+  li span { flex:1; word-break: break-word; }
+  li input { width:22px; height:22px; accent-color: var(--accent-text); }
+  li button { background:none; border:0; color:#fff; font-size:1.2rem; cursor:pointer; }
+  .empty { opacity:.8; margin-top:8px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  .chip { background:transparent; color:#fff; border:2px solid rgba(255,255,255,.6); border-radius:999px; padding:6px 14px; cursor:pointer; font-size:.9rem; }
+  .chip.on { background:#fff; color:var(--accent-text); border-color:#fff; font-weight:700; }
+  .setting { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+  .setting input[type=time] { border:0; border-radius:999px; padding:8px 14px; font-size:1rem; }
+  .note { font-size:.85rem; opacity:.85; margin:10px 0 0; }
+  #install { display:none; }
+  #toast { position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(100px); background:#fff; color:var(--accent-text); padding:12px 22px; border-radius:999px; font-weight:700; transition: transform .4s; }
+  #toast.show { transform:translateX(-50%) translateY(0); }
+  .fade { animation: fade .5s; }
+  @keyframes fade { from { opacity:0; transform: translateY(8px);} to { opacity:1; transform:none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🔥 Yes!</h1>
+    <div class="themes" aria-label="Tema">
+      <button style="background:#ff7e5f" data-t="" title="Tramonto"></button>
+      <button style="background:#4facfe" data-t="blu" title="Oceano"></button>
+      <button style="background:#8e2de2" data-t="viola" title="Viola"></button>
+      <button style="background:#11998e" data-t="verde" title="Foresta"></button>
+    </div>
+  </header>
+
+  <section class="card">
+    <p class="quote fade" id="quote"></p>
+    <div class="author" id="author"></div>
+    <div class="row">
+      <button class="btn" id="next">✨ Nuova frase</button>
+      <button class="btn ghost" id="fav">♡ Salva</button>
+      <button class="btn ghost" id="share">Condividi</button>
+    </div>
+  </section>
+
+  <div class="chips" id="chips"></div>
+
+  <section class="card stats">
+    <div><b id="streak">0</b>giorni di fila</div>
+    <div><b id="doneCount">0</b>obiettivi di oggi</div>
+    <div><b id="favCount">0</b>preferite</div>
+  </section>
+
+  <section class="card">
+    <h2>🎯 I miei obiettivi di oggi</h2>
+    <form class="goal-form" id="goalForm">
+      <input type="text" id="goalInput" placeholder="Cosa vuoi realizzare oggi?" maxlength="100" autocomplete="off">
+      <button class="btn" type="submit">+</button>
+    </form>
+    <ul id="goals"></ul>
+    <p class="empty" id="empty">Nessun obiettivo ancora. Inizia con uno piccolo! 💪</p>
+  </section>
+
+  <section class="card">
+    <h2>🔔 Promemoria quotidiano</h2>
+    <div class="setting">
+      <label><input type="checkbox" id="notifOn"> Ricordamelo ogni giorno alle</label>
+      <input type="time" id="notifTime" value="09:00">
+    </div>
+    <p class="note" id="notifNote">Riceverai una frase motivazionale all'orario scelto. Le notifiche arrivano quando l'app è aperta o installata e attiva in background.</p>
+    <div class="row" style="margin-top:12px"><button class="btn ghost" id="install">📲 Installa l'app</button></div>
+  </section>
+
+  <section class="card">
+    <h2>⭐ Frasi preferite</h2>
+    <ul id="favs"></ul>
+    <p class="empty" id="noFavs">Salva le frasi che ti ispirano di più.</p>
+  </section>
+</main>
+<div id="toast"></div>
+
+<script>
+const QUOTES = [
+  ["Il segreto per andare avanti è iniziare.", "Mark Twain", "generale"],
+  ["Non importa quanto vai piano, l'importante è non fermarti.", "Confucio", "generale"],
+  ["Il successo è la somma di piccoli sforzi ripetuti giorno dopo giorno.", "Robert Collier", "generale"],
+  ["Credi di poterlo fare e sei già a metà strada.", "Theodore Roosevelt", "generale"],
+  ["Il futuro appartiene a coloro che credono nella bellezza dei propri sogni.", "Eleanor Roosevelt", "generale"],
+  ["Cadi sette volte, rialzati otto.", "Proverbio giapponese", "generale"],
+  ["Fai della tua vita un sogno, e di un sogno una realtà.", "Antoine de Saint-Exupéry", "generale"],
+  ["Nessuna notte è così lunga da impedire al sole di risorgere.", "Proverbio", "generale"],
+  ["Sii il cambiamento che vuoi vedere nel mondo.", "Mahatma Gandhi", "generale"],
+  ["La disciplina è il ponte tra gli obiettivi e i risultati.", "Jim Rohn", "generale"],
+  ["Ogni esperto è stato una volta un principiante.", "Helen Hayes", "generale"],
+  ["Se puoi sognarlo, puoi farlo.", "Walt Disney", "generale"],
+  ["Il coraggio non è l'assenza di paura, ma il trionfo su di essa.", "Nelson Mandela", "generale"],
+  ["Oggi è un buon giorno per iniziare.", "Anonimo", "generale"],
+  ["Sei più forte di quanto pensi.", "Anonimo", "generale"],
+  ["Un passo alla volta è sufficiente.", "Anonimo", "generale"],
+  ["Gli errori sono la prova che stai provando.", "Anonimo", "generale"],
+  ["La tua unica competizione è la persona che eri ieri.", "Anonimo", "generale"],
+  ["Ciò che ottieni raggiungendo i tuoi obiettivi non è importante quanto ciò che diventi.", "Zig Ziglar", "generale"],
+  ["Quando tutto sembra andare contro di te, ricorda che l'aereo decolla controvento.", "Henry Ford", "generale"],
+  ["Il dolore è temporaneo, la gloria è per sempre.", "Anonimo", "sport"],
+  ["I campioni si costruiscono quando nessuno guarda.", "Anonimo", "sport"],
+  ["Non ho mai perso. O ho vinto, o ho imparato.", "Nelson Mandela", "sport"],
+  ["Ho sbagliato più di 9000 tiri. Ho perso quasi 300 partite. Per questo ho successo.", "Michael Jordan", "sport"],
+  ["L'allenamento di oggi è la vittoria di domani.", "Anonimo", "sport"],
+  ["Il corpo ottiene ciò che la mente crede.", "Anonimo", "sport"],
+  ["Non contare i giorni, fa che i giorni contino.", "Muhammad Ali", "sport"],
+  ["Ogni ripetizione ti avvicina al tuo obiettivo.", "Anonimo", "sport"],
+  ["Correre non è fuggire: è arrivare.", "Anonimo", "sport"],
+  ["La fatica di oggi è la forza di domani.", "Anonimo", "sport"],
+  ["L'istruzione è l'arma più potente per cambiare il mondo.", "Nelson Mandela", "studio"],
+  ["Studia non per sapere di più, ma per sapere meglio.", "Seneca", "studio"],
+  ["Una pagina al giorno diventa un libro in un anno.", "Anonimo", "studio"],
+  ["Non smettere mai di imparare, perché la vita non smette mai di insegnare.", "Anonimo", "studio"],
+  ["Gli esami passano, ciò che impari resta.", "Anonimo", "studio"],
+  ["La curiosità è la scintilla di ogni scoperta.", "Anonimo", "studio"],
+  ["Impara come se dovessi vivere per sempre.", "Mahatma Gandhi", "studio"],
+  ["Ripetere è il padre dell'apprendimento.", "Proverbio latino", "studio"],
+  ["Concentrati: venticinque minuti di studio valgono più di due ore distratte.", "Anonimo", "studio"],
+  ["Ciò che sai oggi è il punto di partenza di ciò che saprai domani.", "Anonimo", "studio"],
+  ["L'unico modo per fare un ottimo lavoro è amare quello che fai.", "Steve Jobs", "lavoro"],
+  ["Il talento vince le partite, ma il lavoro di squadra vince i campionati.", "Michael Jordan", "lavoro"],
+  ["Fai oggi ciò che gli altri non vogliono fare, per avere domani ciò che gli altri non avranno.", "Anonimo", "lavoro"],
+  ["Non aspettare l'occasione: creala.", "George Bernard Shaw", "lavoro"],
+  ["Un obiettivo senza un piano è solo un desiderio.", "Antoine de Saint-Exupéry", "lavoro"],
+  ["Il modo migliore per prevedere il futuro è crearlo.", "Peter Drucker", "lavoro"],
+  ["Il successo è andare di fallimento in fallimento senza perdere l'entusiasmo.", "Winston Churchill", "lavoro"],
+  ["Prima fallo bene, poi fallo veloce.", "Anonimo", "lavoro"],
+  ["Le grandi cose non si fanno per impulso, ma con una serie di piccole cose messe insieme.", "Vincent van Gogh", "lavoro"],
+  ["Non è mai troppo tardi per essere ciò che avresti potuto essere.", "George Eliot", "generale"],
+  ["La felicità non è un traguardo, è un modo di viaggiare.", "Margaret Lee Runbeck", "generale"],
+  ["Ogni mattina nasciamo di nuovo. Ciò che facciamo oggi è ciò che conta.", "Buddha", "generale"],
+  ["Respira. Hai già superato il 100% dei tuoi giorni difficili.", "Anonimo", "generale"],
+  ["Sii gentile con te stesso: stai facendo del tuo meglio.", "Anonimo", "generale"],
+  ["Le stelle non si possono raggiungere senza il buio.", "Anonimo", "generale"],
+  ["Dopo la pioggia arriva sempre il sereno.", "Proverbio", "generale"],
+  ["La vita è per il 10% ciò che ti accade e per il 90% come reagisci.", "Charles Swindoll", "generale"],
+  ["Fidati del processo.", "Anonimo", "generale"],
+  ["Sogna in grande, parti in piccolo, ma parti.", "Anonimo", "generale"],
+  ["Sorridi: è il primo passo per cambiare la giornata.", "Anonimo", "generale"]
+];
+const CATS = { tutte:"Tutte", generale:"Generale", sport:"Sport", studio:"Studio", lavoro:"Lavoro" };
+const $ = id => document.getElementById(id);
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
+const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
+const today = () => new Date().toISOString().slice(0, 10);
+
+let current = null;
+let cat = load("cat", "tutte");
+const pool = () => QUOTES.map((_, i) => i).filter(i => cat === "tutte" || QUOTES[i][2] === cat);
+let favs = load("favs", []);
+let goals = load("goals", { date: today(), items: [] });
+let streak = load("streak", { last: null, count: 0 });
+if (goals.date !== today()) goals = { date: today(), items: [] };
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function showQuote(i) {
+  if (i == null) {
+    const p = pool();
+    do { i = p[Math.floor(Math.random() * p.length)]; } while (i === current && p.length > 1);
+  }
+  current = i;
+  const [q, a] = QUOTES[i];
+  const el = $("quote");
+  el.classList.remove("fade"); void el.offsetWidth; el.classList.add("fade");
+  el.textContent = "«" + q + "»";
+  $("author").textContent = "— " + a;
+  $("fav").textContent = favs.includes(i) ? "♥ Salvata" : "♡ Salva";
+}
+
+function render() {
+  $("favCount").textContent = favs.length;
+  $("doneCount").textContent = goals.items.filter(g => g.done).length + "/" + goals.items.length;
+  $("streak").textContent = streak.count;
+  $("empty").style.display = goals.items.length ? "none" : "block";
+  $("noFavs").style.display = favs.length ? "none" : "block";
+
+  const gl = $("goals"); gl.innerHTML = "";
+  goals.items.forEach((g, idx) => {
+    const li = document.createElement("li"); if (g.done) li.className = "done";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = g.done;
+    cb.onchange = () => toggleGoal(idx);
+    const sp = document.createElement("span"); sp.textContent = g.text;
+    const del = document.createElement("button"); del.textContent = "✕"; del.setAttribute("aria-label", "Elimina");
+    del.onclick = () => { goals.items.splice(idx, 1); save("goals", goals); render(); };
+    li.append(cb, sp, del); gl.append(li);
+  });
+
+  const fl = $("favs"); fl.innerHTML = "";
+  favs.forEach(i => {
+    const li = document.createElement("li");
+    const sp = document.createElement("span"); sp.textContent = "«" + QUOTES[i][0] + "» — " + QUOTES[i][1];
+    const del = document.createElement("button"); del.textContent = "✕"; del.setAttribute("aria-label", "Rimuovi");
+    del.onclick = () => { favs = favs.filter(x => x !== i); save("favs", favs); showQuote(current); render(); };
+    li.append(sp, del); fl.append(li);
+  });
+}
+
+function toggleGoal(idx) {
+  const g = goals.items[idx]; g.done = !g.done;
+  save("goals", goals);
+  if (g.done) {
+    const msgs = ["Grande! 🎉", "Un passo avanti! 🚀", "Ce l'hai fatta! 💪", "Fantastico! ⭐"];
+    toast(msgs[Math.floor(Math.random() * msgs.length)]);
+    if (streak.last !== today()) {
+      const y = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+      streak.count = streak.last === y ? streak.count + 1 : 1;
+      streak.last = today(); save("streak", streak);
+    }
+    if (goals.items.every(x => x.done)) setTimeout(() => toast("Tutti gli obiettivi completati! 🏆"), 2400);
+  }
+  render();
+}
+
+$("next").onclick = () => showQuote();
+$("fav").onclick = () => {
+  favs = favs.includes(current) ? favs.filter(x => x !== current) : [...favs, current];
+  save("favs", favs); showQuote(current); render();
+};
+$("share").onclick = async () => {
+  const text = `«${QUOTES[current][0]}» — ${QUOTES[current][1]}`;
+  try {
+    if (navigator.share) await navigator.share({ text });
+    else { await navigator.clipboard.writeText(text); toast("Copiata negli appunti 📋"); }
+  } catch {}
+};
+$("goalForm").onsubmit = e => {
+  e.preventDefault();
+  const v = $("goalInput").value.trim(); if (!v) return;
+  goals.items.push({ text: v, done: false }); save("goals", goals);
+  $("goalInput").value = ""; render();
+};
+document.querySelectorAll(".themes button").forEach(b => b.onclick = () => {
+  document.documentElement.dataset.theme = b.dataset.t; save("theme", b.dataset.t);
+});
+
+
+// ---- categorie ----
+function renderChips() {
+  const c = $("chips"); c.innerHTML = "";
+  Object.entries(CATS).forEach(([k, label]) => {
+    const b = document.createElement("button");
+    b.className = "chip" + (k === cat ? " on" : ""); b.textContent = label;
+    b.onclick = () => { cat = k; save("cat", k); renderChips(); showQuote(); };
+    c.append(b);
+  });
+}
+
+// ---- promemoria quotidiano ----
+let notif = load("notif", { on: false, time: "09:00", last: null });
+let notifTimer = null;
+async function fireNotification() {
+  const p = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  const opts = { body: "«" + p[0] + "» — " + p[1], icon: "icon-192.png", tag: "daily-yes" };
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration();
+    if (reg) await reg.showNotification("Yes! La tua dose di motivazione 🔥", opts);
+    else new Notification("Yes! La tua dose di motivazione 🔥", opts);
+  } catch {}
+  notif.last = today(); save("notif", notif);
+}
+function scheduleNotification() {
+  clearTimeout(notifTimer);
+  if (!notif.on || !("Notification" in window) || Notification.permission !== "granted") return;
+  const [h, m] = notif.time.split(":").map(Number);
+  const at = new Date(); at.setHours(h, m, 0, 0);
+  if (notif.last !== today() && at <= new Date()) { fireNotification(); }
+  if (at <= new Date() || notif.last === today()) at.setDate(at.getDate() + 1);
+  notifTimer = setTimeout(() => { fireNotification().then(scheduleNotification); }, Math.min(at - new Date(), 2147000000));
+}
+async function setNotif(on) {
+  if (on) {
+    if (!("Notification" in window)) { toast("Notifiche non supportate"); on = false; }
+    else if (await Notification.requestPermission() !== "granted") { toast("Permesso negato dal browser"); on = false; }
+  }
+  notif.on = on; $("notifOn").checked = on; save("notif", notif); scheduleNotification();
+  if (on) toast("Promemoria attivato alle " + notif.time + " 🔔");
+}
+$("notifOn").checked = notif.on; $("notifTime").value = notif.time;
+$("notifOn").onchange = e => setNotif(e.target.checked);
+$("notifTime").onchange = e => { notif.time = e.target.value || "09:00"; notif.last = null; save("notif", notif); scheduleNotification(); };
+document.addEventListener("visibilitychange", () => { if (!document.hidden) scheduleNotification(); });
+
+// ---- PWA ----
+if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+let deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault(); deferredPrompt = e; $("install").style.display = "inline-block";
+});
+$("install").onclick = async () => {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; $("install").style.display = "none";
+};
+
+document.documentElement.dataset.theme = load("theme", "");
+renderChips();
+scheduleNotification();
+// frase del giorno stabile al primo caricamento
+showQuote(Math.floor(Date.now() / 864e5) % QUOTES.length);
+render();
+</script>
+</body>
+</html>
