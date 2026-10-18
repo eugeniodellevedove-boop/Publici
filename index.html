@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Tilt Flight</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #8ec5f0; font-family: system-ui, sans-serif; color: #fff; touch-action: none; -webkit-user-select: none; user-select: none; }
+  canvas { display: block; position: fixed; inset: 0; }
+  #hud { position: fixed; left: 0; right: 0; top: 0; padding: 10px 14px; display: flex; justify-content: space-between; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.6); pointer-events: none; font-size: 15px; }
+  #hud span { font-variant-numeric: tabular-nums; }
+  #msg { position: fixed; top: 38%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,.7); opacity: 0; transition: opacity .4s; pointer-events: none; }
+  #arrow { position: fixed; top: 44px; left: 50%; width: 34px; height: 34px; margin-left: -17px; pointer-events: none; }
+  #throttleWrap { position: fixed; right: 14px; bottom: 14px; top: 60px; width: 54px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  #throttleWrap label { font-size: 11px; text-shadow: 0 1px 3px #000; }
+  #throttle { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; flex: 1; width: 40px; accent-color: #ffb300; }
+  #tools { position: fixed; left: 14px; bottom: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 10px; border: 0; background: rgba(0,0,0,.45); color: #fff; }
+  #tools label { font-size: 12px; background: rgba(0,0,0,.35); padding: 6px 8px; border-radius: 8px; }
+  #start { position: fixed; inset: 0; background: rgba(10,30,60,.88); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 24px; gap: 14px; z-index: 5; }
+  #start h1 { margin: 0; font-size: 34px; }
+  #start p { max-width: 420px; margin: 0; line-height: 1.45; opacity: .9; }
+  #start button { font-size: 20px; padding: 14px 32px; background: #ffb300; color: #1a1a1a; }
+</style>
+</head>
+<body>
+<div id="hud"><span id="spd">0 km/h</span><span id="score">Anelli: 0</span><span id="alt">0 m</span></div>
+<svg id="arrow" viewBox="-10 -10 20 20"><path id="arrowPath" d="M0,-9 L7,7 L0,3 L-7,7 Z" fill="#ffb300" stroke="#000" stroke-width="1"/></svg>
+<div id="msg"></div>
+<div id="throttleWrap"><label>GAS</label><input id="throttle" type="range" min="0" max="100" value="55"></div>
+<div id="tools">
+  <button id="calib">Calibra</button>
+  <label><input type="checkbox" id="invRoll"> inverti rollio</label>
+  <label><input type="checkbox" id="invPitch"> inverti beccheggio</label>
+</div>
+<div id="start">
+  <h1>✈️ Tilt Flight</h1>
+  <p>Tieni il telefono in <b>orizzontale</b> come un volante/cloche.<br>
+  Inclina a destra/sinistra per virare, avvicina/allontana la parte alta per salire/scendere.<br>
+  Passa negli anelli, evita montagne e mare. Premi <b>Calibra</b> per fissare la posizione neutra.</p>
+  <button id="go">Decolla</button>
+  <p style="font-size:13px;opacity:.7">Su PC: frecce per guidare, W/S per il gas.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  document.body.prepend(renderer.domElement);
+  const scene = new THREE.Scene();
+  const SKY = 0x8ec5f0;
+  scene.background = new THREE.Color(SKY);
+  scene.fog = new THREE.Fog(SKY, 1500, 5500);
+  const camera = new THREE.PerspectiveCamera(65, 1, 1, 9000);
+  function resize() {
+    renderer.setSize(innerWidth, innerHeight);
+    camera.aspect = innerWidth / innerHeight;
+    camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x556644, 0.9));
+  const sun = new THREE.DirectionalLight(0xfff2d0, 0.8);
+  sun.position.set(300, 600, 200);
+  scene.add(sun);
+
+  // ---------- Terreno ----------
+  function height(x, z) {
+    return 140 * Math.sin(x * 0.0011 + 1.3) * Math.cos(z * 0.0013)
+         + 70 * Math.sin(x * 0.0035 + z * 0.0029)
+         + 30 * Math.sin(x * 0.011) * Math.cos(z * 0.009)
+         + 12 * Math.sin(x * 0.03 + z * 0.027) - 10;
+  }
+  const SIZE = 12000, SEG = 150, CELL = SIZE / SEG;
+  const tGeo = new THREE.PlaneGeometry(SIZE, SIZE, SEG, SEG);
+  tGeo.rotateX(-Math.PI / 2);
+  tGeo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(tGeo.attributes.position.count * 3), 3));
+  const terrain = new THREE.Mesh(tGeo, new THREE.MeshLambertMaterial({ vertexColors: true }));
+  scene.add(terrain);
+  const tBase = tGeo.attributes.position.array.slice();
+  const col = new THREE.Color();
+  let tcx = null, tcz = null;
+  function updateTerrain(px, pz) {
+    const cx = Math.round(px / CELL) * CELL, cz = Math.round(pz / CELL) * CELL;
+    if (cx === tcx && cz === tcz) return;
+    tcx = cx; tcz = cz;
+    const p = tGeo.attributes.position.array, c = tGeo.attributes.color.array;
+    for (let i = 0; i < p.length; i += 3) {
+      const wx = tBase[i] + cx, wz = tBase[i + 2] + cz, h = height(wx, wz);
+      p[i] = tBase[i]; p[i + 2] = tBase[i + 2]; p[i + 1] = h;
+      if (h < 3) col.set(0xd8c690);                // spiaggia
+      else if (h < 90) col.setHSL(0.27, 0.45, 0.30 + h / 600);
+      else if (h < 170) col.setHSL(0.09, 0.2, 0.33 + (h - 90) / 500);
+      else col.set(0xf4f6f8);                      // neve
+      c[i] = col.r; c[i + 1] = col.g; c[i + 2] = col.b;
+    }
+    tGeo.attributes.position.needsUpdate = true;
+    tGeo.attributes.color.needsUpdate = true;
+    tGeo.computeVertexNormals();
+    terrain.position.set(cx, 0, cz);
+  }
+  const water = new THREE.Mesh(new THREE.PlaneGeometry(SIZE * 1.5, SIZE * 1.5).rotateX(-Math.PI / 2),
+    new THREE.MeshLambertMaterial({ color: 0x2b7fc4, transparent: true, opacity: 0.85 }));
+  scene.add(water);
+
+  // ---------- Nuvole ----------
+  const clouds = new THREE.Group();
+  const cMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, fog: true });
+  const CR = 5000;
+  for (let i = 0; i < 45; i++) {
+    const g = new THREE.Group();
+    for (let k = 0; k < 5; k++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(40 + Math.random() * 50, 8, 6), cMat);
+      s.position.set((Math.random() - .5) * 160, (Math.random() - .5) * 25, (Math.random() - .5) * 90);
+      s.scale.y = 0.55; g.add(s);
+    }
+    g.position.set((Math.random() - .5) * 2 * CR, 450 + Math.random() * 500, (Math.random() - .5) * 2 * CR);
+    clouds.add(g);
+  }
+  scene.add(clouds);
+
+  // ---------- Aereo ----------
+  const plane = new THREE.Group();
+  const mWhite = new THREE.MeshLambertMaterial({ color: 0xf2f2f2 });
+  const mRed = new THREE.MeshLambertMaterial({ color: 0xd9341f });
+  const fus = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.6, 9, 10).rotateX(Math.PI / 2), mWhite);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 10).rotateX(-Math.PI / 2), mRed);
+  nose.position.z = -5.5;
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(14, 0.2, 2.4), mWhite); wing.position.set(0, 0, -0.5);
+  const tailW = new THREE.Mesh(new THREE.BoxGeometry(5, 0.15, 1.4), mWhite); tailW.position.set(0, 0.2, 4);
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 1.6), mRed); fin.position.set(0, 1.2, 4);
+  const prop = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.2, 0.1), new THREE.MeshBasicMaterial({ color: 0x222222, transparent: true, opacity: .5 }));
+  prop.position.z = -6.7;
+  plane.add(fus, nose, wing, tailW, fin, prop);
+  plane.rotation.order = 'YXZ';
+  scene.add(plane);
+
+  // ---------- Anello obiettivo ----------
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(40, 3.5, 12, 40),
+    new THREE.MeshBasicMaterial({ color: 0xffb300 }));
+  scene.add(ring);
+
+  // ---------- Stato ----------
+  const st = { x: 0, y: 220, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, score: 0, alive: true };
+  const input = { roll: 0, pitch: 0 };       // -1..1
+  const keys = {};
+  let tiltOn = false, lastTilt = 0, base = { pitch: 0, roll: 0 }, raw = { pitch: 0, roll: 0 };
+
+  function newRing() {
+    const a = st.yaw + (Math.random() - .5) * 1.2;
+    const d = 900 + Math.random() * 500;
+    const x = st.x - Math.sin(a) * d, z = st.z - Math.cos(a) * d;
+    const y = Math.max(height(x, z), 0) + 70 + Math.random() * 160;
+    ring.position.set(x, y, z);
+    ring.rotation.y = a;
+  }
+  function say(t, ms = 1500) {
+    const m = $('msg'); m.textContent = t; m.style.opacity = 1;
+    clearTimeout(say.t); say.t = setTimeout(() => m.style.opacity = 0, ms);
+  }
+  function reset() {
+    Object.assign(st, { x: 0, y: 260, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, alive: true });
+    st.score = 0; updateTerrain(0, 0); newRing();
+  }
+
+  // ---------- Sensori ----------
+  const euler = new THREE.Euler(), q = new THREE.Quaternion(), q1 = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2), q0 = new THREE.Quaternion();
+  const zAxis = new THREE.Vector3(0, 0, 1), v = new THREE.Vector3();
+  function onOrient(e) {
+    if (e.beta == null) return;
+    lastTilt = performance.now(); tiltOn = true;
+    const d = THREE.MathUtils.degToRad;
+    const so = (screen.orientation && screen.orientation.angle !== undefined ? screen.orientation.angle : window.orientation || 0);
+    euler.set(d(e.beta), d(e.alpha || 0), -d(e.gamma), 'YXZ');
+    q.setFromEuler(euler).multiply(q1).multiply(q0.setFromAxisAngle(zAxis, -d(so)));
+    v.set(0, 0, -1).applyQuaternion(q); raw.pitch = Math.asin(THREE.MathUtils.clamp(v.y, -1, 1));
+    v.set(1, 0, 0).applyQuaternion(q);  raw.roll = -Math.asin(THREE.MathUtils.clamp(v.y, -1, 1));
+  }
+  function calibrate() { base.pitch = raw.pitch; base.roll = raw.roll; say('Calibrato'); }
+  $('calib').onclick = calibrate;
+
+  $('go').onclick = async () => {
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') say('Permesso sensori negato', 3000);
+      }
+    } catch (e) { say('Sensori non disponibili', 3000); }
+    addEventListener('deviceorientation', onOrient);
+    try { await document.documentElement.requestFullscreen(); } catch (e) {}
+    try { await screen.orientation.lock('landscape'); } catch (e) {}
+    try { await navigator.wakeLock.request('screen'); } catch (e) {}
+    $('start').style.display = 'none';
+    reset();
+    setTimeout(calibrate, 800);
+    setTimeout(() => { if (!tiltOn) say('Nessun sensore: usa le frecce', 3000); }, 1500);
+  };
+  addEventListener('keydown', e => keys[e.key] = true);
+  addEventListener('keyup', e => keys[e.key] = false);
+
+  // ---------- Loop ----------
+  const clock = new THREE.Clock();
+  const fwd = new THREE.Vector3();
+  let camPos = new THREE.Vector3(), camInit = false;
+  const MAXTILT = THREE.MathUtils.degToRad(30);
+
+  function step(dt) {
+    // input
+    if (tiltOn && performance.now() - lastTilt < 1000) {
+      const sr = $('invRoll').checked ? -1 : 1, sp = $('invPitch').checked ? -1 : 1;
+      input.roll = THREE.MathUtils.clamp(sr * (raw.roll - base.roll) / MAXTILT, -1, 1);
+      input.pitch = THREE.MathUtils.clamp(sp * (raw.pitch - base.pitch) / MAXTILT, -1, 1);
+    } else {
+      input.roll = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
+      input.pitch = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0);
+      const th = $('throttle');
+      if (keys.w || keys.W) th.value = Math.min(100, +th.value + 40 * dt);
+      if (keys.s || keys.S) th.value = Math.max(0, +th.value - 40 * dt);
+    }
+    const dead = x => Math.abs(x) < 0.06 ? 0 : x;
+    const ir = dead(input.roll), ip = dead(input.pitch);
+
+    if (!st.alive) return;
+    const k = 1 - Math.exp(-dt * 4);
+    st.roll += (ir * 1.15 - st.roll) * k;               // max ~66°
+    st.pitch += (ip * 0.7 - st.pitch) * k;              // max ~40°
+    st.yaw -= Math.sin(st.roll) * 0.9 * dt * (1.1 - st.speed / 400);
+
+    const thr = $('throttle').value / 100;
+    const targetSpeed = 35 + thr * 95 - Math.sin(st.pitch) * 40;
+    st.speed += (targetSpeed - st.speed) * dt * 0.6;
+
+    plane.rotation.set(st.pitch, st.yaw, -st.roll);
+    fwd.set(0, 0, -1).applyEuler(plane.rotation);
+    st.x += fwd.x * st.speed * dt; st.y += fwd.y * st.speed * dt; st.z += fwd.z * st.speed * dt;
+    // stallo: sotto i 40 m/s il muso cade
+    if (st.speed < 40) st.y -= (40 - st.speed) * 0.5 * dt * 3;
+    if (st.y > 1600) st.y = 1600;
+    plane.position.set(st.x, st.y, st.z);
+    prop.rotation.z += dt * 40;
+
+    // collisione
+    if (st.y < Math.max(height(st.x, st.z), 0) + 3) {
+      st.alive = false; say('💥 Schianto! Ricomincio…', 1800);
+      setTimeout(reset, 1800);
+    }
+    // anello
+    if (ring.position.distanceTo(plane.position) < 46) {
+      st.score++; say('✔ Anello! +1', 900); newRing();
+    } else if (ring.position.distanceTo(plane.position) > 2500) newRing();
+  }
+
+  function frame() {
+    const dt = Math.min(clock.getDelta(), 0.05);
+    step(dt);
+
+    updateTerrain(st.x, st.z);
+    water.position.set(st.x, 0, st.z);
+    clouds.children.forEach(c => {
+      c.position.x = st.x + ((((c.position.x - st.x + CR) % (2 * CR)) + 2 * CR) % (2 * CR)) - CR;
+      c.position.z = st.z + ((((c.position.z - st.z + CR) % (2 * CR)) + 2 * CR) % (2 * CR)) - CR;
+    });
+
+    // camera di inseguimento
+    const e = new THREE.Euler(st.pitch * 0.5, st.yaw, 0, 'YXZ');
+    const want = new THREE.Vector3(0, 6, 22).applyEuler(e).add(plane.position);
+    if (!camInit) { camPos.copy(want); camInit = true; }
+    camPos.lerp(want, 1 - Math.exp(-dt * 6));
+    camera.position.copy(camPos);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(plane.position.x, plane.position.y + 2, plane.position.z);
+    camera.rotateZ(-st.roll * 0.35);
+    ring.material.color.setHSL(0.11, 1, 0.5 + 0.1 * Math.sin(performance.now() / 150));
+
+    // HUD
+    $('spd').textContent = Math.round(st.speed * 3.6) + ' km/h';
+    $('alt').textContent = Math.round(st.y) + ' m';
+    $('score').textContent = 'Anelli: ' + st.score;
+    const to = ring.position.clone().sub(plane.position);
+    const ang = Math.atan2(-to.x, -to.z) - st.yaw;   // 0 = dritto davanti
+    $('arrowPath').setAttribute('transform', 'rotate(' + (-THREE.MathUtils.radToDeg(ang)) + ')');
+
+    renderer.render(scene, camera);
+    requestAnimationFrame(frame);
+  }
+  reset();
+  frame();
+})();
+</script>
+</body>
+</html>
