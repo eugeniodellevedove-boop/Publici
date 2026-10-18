@@ -13,12 +13,14 @@
   #arrow, #arrow2 { position: fixed; top: 44px; left: 50%; width: 34px; height: 34px; pointer-events: none; }
   #arrow { margin-left: -47px; }
   #arrow2 { margin-left: 13px; }
-  #fire { position: fixed; right: 84px; bottom: 22px; width: 96px; height: 96px; border-radius: 50%; background: rgba(220,40,30,.75); border: 3px solid #fff; font-size: 15px; letter-spacing: 1px; touch-action: none; }
+  #fire { position: fixed; right: 190px; bottom: 22px; width: 96px; height: 96px; border-radius: 50%; background: rgba(220,40,30,.75); border: 3px solid #fff; font-size: 15px; letter-spacing: 1px; touch-action: none; }
   #fire:active { background: rgba(255,90,60,.95); }
   #flash { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px rgba(255,0,0,.9); opacity: 0; transition: opacity .35s; }
-  #throttleWrap { position: fixed; right: 14px; bottom: 14px; top: 60px; width: 54px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  #throttleWrap label { font-size: 11px; text-shadow: 0 1px 3px #000; }
-  #throttle { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; flex: 1; width: 40px; accent-color: #ffb300; }
+  #throttleWrap { display: none; }
+  .pedal { position: fixed; bottom: 14px; width: 74px; height: 120px; border-radius: 14px; border: 3px solid #fff; font-size: 14px; font-weight: 700; touch-action: none; line-height: 1.3; }
+  #gas { right: 14px; background: rgba(40,170,70,.75); }
+  #brake { right: 98px; background: rgba(200,50,40,.75); height: 90px; }
+  .pedal.on { filter: brightness(1.5); transform: scale(.96); }
   #tools { position: fixed; left: 14px; bottom: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   button { font: inherit; font-weight: 600; padding: 8px 14px; border-radius: 10px; border: 0; background: rgba(0,0,0,.45); color: #fff; }
   #tools label { font-size: 12px; background: rgba(0,0,0,.35); padding: 6px 8px; border-radius: 8px; }
@@ -35,7 +37,9 @@
 <div id="flash"></div>
 <div id="msg"></div>
 <button id="fire">FUOCO</button>
-<div id="throttleWrap"><label>GAS</label><input id="throttle" type="range" min="0" max="100" value="55"></div>
+<div id="throttleWrap"><input id="throttle" type="range" min="0" max="100" value="70"></div>
+<button class="pedal" id="brake">FRENO</button>
+<button class="pedal" id="gas">GAS<br><span id="gasv">70%</span></button>
 <div id="tools">
   <button id="calib">Calibra</button>
   <label><input type="checkbox" id="invRoll"> inverti rollio</label>
@@ -45,7 +49,7 @@
   <h1>✈️ Tilt Flight</h1>
   <p>Tieni il telefono in <b>orizzontale</b> come un volante/cloche.<br>
   Inclina a destra/sinistra per virare, avvicina/allontana la parte alta per salire/scendere.<br>
-  Passa negli anelli (curano), evita montagne e mare e <b>abbatti i caccia nemici</b> col tasto FUOCO (o spazio). Premi <b>Calibra</b> per fissare la posizione neutra.</p>
+  Passa negli anelli (curano), evita montagne e mare e <b>abbatti i caccia nemici</b> col tasto FUOCO (o spazio). <b>GAS</b> e <b>FRENO</b> sono pedali a destra: tieni premuto per accelerare, rilascia per rallentare piano. Con poca velocità l'aereo perde quota! Premi <b>Calibra</b> per fissare la posizione neutra.</p>
   <button id="go">Decolla</button>
   <p style="font-size:13px;opacity:.7">Su PC: frecce per guidare, W/S per il gas.</p>
 </div>
@@ -150,7 +154,7 @@
   scene.add(ring);
 
   // ---------- Stato ----------
-  const st = { x: 0, y: 220, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, score: 0, alive: true };
+  const st = { x: 0, y: 220, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 90, score: 0, alive: true };
   const input = { roll: 0, pitch: 0 };       // -1..1
   const keys = {};
   let tiltOn = false, lastTilt = 0, base = { pitch: 0, roll: 0 }, raw = { pitch: 0, roll: 0 };
@@ -168,7 +172,8 @@
     clearTimeout(say.t); say.t = setTimeout(() => m.style.opacity = 0, ms);
   }
   function reset() {
-    Object.assign(st, { x: 0, y: 260, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, alive: true, hp: 100, kills: 0 });
+    Object.assign(st, { x: 0, y: 260, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 90, alive: true, hp: 100, kills: 0 });
+    $('throttle').value = 70;
     st.score = 0; plane.visible = true; resetCombat(); updateTerrain(0, 0); newRing();
   }
 
@@ -188,6 +193,13 @@
   const fb = $('fire');
   fb.addEventListener('pointerdown', e => { firing = true; e.preventDefault(); });
   ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => fb.addEventListener(t, () => firing = false));
+
+  const pedal = { gas: false, brake: false };
+  ['gas', 'brake'].forEach(n => {
+    const b = $(n);
+    b.addEventListener('pointerdown', e => { pedal[n] = true; b.classList.add('on'); e.preventDefault(); });
+    ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => b.addEventListener(t, () => { pedal[n] = false; b.classList.remove('on'); }));
+  });
 
   function shoot(pos, dir, speed, enemy) {
     const m = new THREE.Mesh(enemy ? bGeoE : bGeoP, enemy ? bMatE : bMatP);
@@ -224,6 +236,7 @@
     const w = new THREE.Mesh(new THREE.BoxGeometry(13, 0.2, 2.6), dark); w.position.z = -0.5; g.add(w);
     const t = new THREE.Mesh(new THREE.BoxGeometry(5, 0.15, 1.4), dark); t.position.set(0, 0.2, 4); g.add(t);
     const f = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 1.6), red); f.position.set(0, 1.2, 4); g.add(f);
+    g.scale.setScalar(2.4);
     return g;
   }
   function spawnEnemy() {
@@ -245,7 +258,7 @@
       if (dist < 180) e.brk = 2.5;
       if (e.brk > 0 || !st.alive) { e.brk -= dt; tgt.copy(p).addScaledVector(ef, 600); }
       else tgt.copy(plane.position).addScaledVector(fwd, st.speed * 0.8);
-      const ground = Math.max(height(p.x, p.z), height(p.x + ef.x * 250, p.z + ef.z * 250), 0) + 90;
+      const ground = Math.max(height(p.x, p.z), height(p.x + ef.x * 250, p.z + ef.z * 250), 0) + 120;
       if (p.y < ground) tgt.y = p.y + 400;
       else if (p.y > 1400) tgt.y = p.y - 300;
       m4.lookAt(p, tgt, UP); qT.setFromRotationMatrix(m4);
@@ -257,10 +270,10 @@
         aim.copy(plane.position).addScaledVector(fwd, st.speed * dist / 280).sub(p).normalize();
         aim.x += (Math.random() - .5) * 0.04; aim.y += (Math.random() - .5) * 0.04; aim.z += (Math.random() - .5) * 0.04;
         aim.normalize();
-        shoot(tmp.copy(p).addScaledVector(ef, 8), aim, 280, true);
+        shoot(tmp.copy(p).addScaledVector(ef, 20), aim, 280, true);
         e.cd = (++e.burst % 5 === 0) ? 2.5 : 0.22;
       }
-      if (st.alive && dist < 14) {
+      if (st.alive && dist < 30) {
         explode(p, 2); scene.remove(e.mesh); enemies.splice(i, 1); hurt(40);
       }
     }
@@ -275,7 +288,7 @@
       } else if (!dead) {
         for (let j = enemies.length - 1; j >= 0; j--) {
           const e = enemies[j];
-          if (b.m.position.distanceTo(e.mesh.position) < 14) {
+          if (b.m.position.distanceTo(e.mesh.position) < 32) {
             dead = true; e.hp--; explode(b.m.position, 0.3);
             if (e.hp <= 0) {
               explode(e.mesh.position, 2); scene.remove(e.mesh); enemies.splice(j, 1);
@@ -354,28 +367,28 @@
     } else {
       input.roll = (keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0);
       input.pitch = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0);
-      const th = $('throttle');
-      if (keys.w || keys.W) th.value = Math.min(100, +th.value + 40 * dt);
-      if (keys.s || keys.S) th.value = Math.max(0, +th.value - 40 * dt);
     }
+    // pedali stile auto: gas sale piano, rilasciato cala lentamente, freno cala veloce
+    const th = $('throttle'), gasOn = pedal.gas || keys.w || keys.W, brakeOn = pedal.brake || keys.s || keys.S;
+    th.value = THREE.MathUtils.clamp(+th.value + (gasOn ? 45 : brakeOn ? -110 : -6) * dt, 0, 100);
     const dead = x => Math.abs(x) < 0.06 ? 0 : x;
     const ir = dead(input.roll), ip = dead(input.pitch);
 
     if (!st.alive) return;
     const k = 1 - Math.exp(-dt * 4);
     st.roll += (ir * 1.15 - st.roll) * k;               // max ~66°
-    st.pitch += (ip * 0.7 - st.pitch) * k;              // max ~40°
+    const lift = Math.min(1, Math.pow(st.speed / 90, 2));   // poca velocita' = poca portanza
+    st.pitch += (ip * 0.7 - (1 - lift) * 0.5 - st.pitch) * k;   // max ~40°
     st.yaw -= Math.sin(st.roll) * 0.9 * dt * (1.1 - st.speed / 400);
-
-    const thr = $('throttle').value / 100;
-    const targetSpeed = 35 + thr * 95 - Math.sin(st.pitch) * 40;
-    st.speed += (targetSpeed - st.speed) * dt * 0.6;
 
     plane.rotation.set(st.pitch, st.yaw, -st.roll);
     fwd.set(0, 0, -1).applyEuler(plane.rotation);
+    const thr = th.value / 100;
+    // spinta - resistenza - gravita' lungo la rotta - freno
+    st.speed = Math.max(5, st.speed + (60 * thr - 0.005 * st.speed * st.speed - 40 * fwd.y - (brakeOn ? 35 : 0)) * dt);
     st.x += fwd.x * st.speed * dt; st.y += fwd.y * st.speed * dt; st.z += fwd.z * st.speed * dt;
-    // stallo: sotto i 40 m/s il muso cade
-    if (st.speed < 40) st.y -= (40 - st.speed) * 0.5 * dt * 3;
+    // gravita': l'aereo scende tanto piu' quanto meno portanza ha
+    st.y -= 32 * (1 - lift) * dt;
     if (st.y > 1600) st.y = 1600;
     plane.position.set(st.x, st.y, st.z);
     prop.rotation.z += dt * 40;
@@ -414,6 +427,7 @@
     ring.material.color.setHSL(0.11, 1, 0.5 + 0.1 * Math.sin(performance.now() / 150));
 
     // HUD
+    $('gasv').textContent = Math.round($('throttle').value) + '%';
     $('spd').textContent = Math.round(st.speed * 3.6) + ' km/h';
     $('alt').textContent = Math.round(st.y) + ' m';
     $('score').textContent = 'Anelli ' + st.score + ' · Abbattuti ' + st.kills;
