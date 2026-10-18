@@ -10,7 +10,12 @@
   #hud { position: fixed; left: 0; right: 0; top: 0; padding: 10px 14px; display: flex; justify-content: space-between; font-weight: 600; text-shadow: 0 1px 4px rgba(0,0,0,.6); pointer-events: none; font-size: 15px; }
   #hud span { font-variant-numeric: tabular-nums; }
   #msg { position: fixed; top: 38%; left: 0; right: 0; text-align: center; font-size: 28px; font-weight: 700; text-shadow: 0 2px 8px rgba(0,0,0,.7); opacity: 0; transition: opacity .4s; pointer-events: none; }
-  #arrow { position: fixed; top: 44px; left: 50%; width: 34px; height: 34px; margin-left: -17px; pointer-events: none; }
+  #arrow, #arrow2 { position: fixed; top: 44px; left: 50%; width: 34px; height: 34px; pointer-events: none; }
+  #arrow { margin-left: -47px; }
+  #arrow2 { margin-left: 13px; }
+  #fire { position: fixed; right: 84px; bottom: 22px; width: 96px; height: 96px; border-radius: 50%; background: rgba(220,40,30,.75); border: 3px solid #fff; font-size: 15px; letter-spacing: 1px; touch-action: none; }
+  #fire:active { background: rgba(255,90,60,.95); }
+  #flash { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px rgba(255,0,0,.9); opacity: 0; transition: opacity .35s; }
   #throttleWrap { position: fixed; right: 14px; bottom: 14px; top: 60px; width: 54px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
   #throttleWrap label { font-size: 11px; text-shadow: 0 1px 3px #000; }
   #throttle { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; flex: 1; width: 40px; accent-color: #ffb300; }
@@ -24,9 +29,12 @@
 </style>
 </head>
 <body>
-<div id="hud"><span id="spd">0 km/h</span><span id="score">Anelli: 0</span><span id="alt">0 m</span></div>
+<div id="hud"><span id="spd">0 km/h</span><span id="score">Anelli: 0</span><span id="hp">❤ 100</span><span id="alt">0 m</span></div>
 <svg id="arrow" viewBox="-10 -10 20 20"><path id="arrowPath" d="M0,-9 L7,7 L0,3 L-7,7 Z" fill="#ffb300" stroke="#000" stroke-width="1"/></svg>
+<svg id="arrow2" viewBox="-10 -10 20 20"><path id="arrowPath2" d="M0,-9 L7,7 L0,3 L-7,7 Z" fill="#ff3322" stroke="#000" stroke-width="1"/></svg>
+<div id="flash"></div>
 <div id="msg"></div>
+<button id="fire">FUOCO</button>
 <div id="throttleWrap"><label>GAS</label><input id="throttle" type="range" min="0" max="100" value="55"></div>
 <div id="tools">
   <button id="calib">Calibra</button>
@@ -37,7 +45,7 @@
   <h1>✈️ Tilt Flight</h1>
   <p>Tieni il telefono in <b>orizzontale</b> come un volante/cloche.<br>
   Inclina a destra/sinistra per virare, avvicina/allontana la parte alta per salire/scendere.<br>
-  Passa negli anelli, evita montagne e mare. Premi <b>Calibra</b> per fissare la posizione neutra.</p>
+  Passa negli anelli (curano), evita montagne e mare e <b>abbatti i caccia nemici</b> col tasto FUOCO (o spazio). Premi <b>Calibra</b> per fissare la posizione neutra.</p>
   <button id="go">Decolla</button>
   <p style="font-size:13px;opacity:.7">Su PC: frecce per guidare, W/S per il gas.</p>
 </div>
@@ -160,8 +168,140 @@
     clearTimeout(say.t); say.t = setTimeout(() => m.style.opacity = 0, ms);
   }
   function reset() {
-    Object.assign(st, { x: 0, y: 260, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, alive: true });
-    st.score = 0; updateTerrain(0, 0); newRing();
+    Object.assign(st, { x: 0, y: 260, z: 0, yaw: 0, pitch: 0, roll: 0, speed: 60, alive: true, hp: 100, kills: 0 });
+    st.score = 0; plane.visible = true; resetCombat(); updateTerrain(0, 0); newRing();
+  }
+
+
+  // ---------- Combattimento ----------
+  const UP = new THREE.Vector3(0, 1, 0);
+  const tmp = new THREE.Vector3(), tgt = new THREE.Vector3(), ef = new THREE.Vector3(), aim = new THREE.Vector3();
+  const m4 = new THREE.Matrix4(), qT = new THREE.Quaternion();
+  const bGeoP = new THREE.SphereGeometry(0.9, 6, 4), bMatP = new THREE.MeshBasicMaterial({ color: 0xffee55 });
+  const bGeoE = new THREE.SphereGeometry(1.5, 6, 4), bMatE = new THREE.MeshBasicMaterial({ color: 0xff3322 });
+  const bullets = [], enemies = [], fx = [];
+  const cross = new THREE.Mesh(new THREE.RingGeometry(3.5, 4.3, 24),
+    new THREE.MeshBasicMaterial({ color: 0xffee55, transparent: true, opacity: .85, depthTest: false, depthWrite: false, fog: false }));
+  cross.renderOrder = 999;
+  scene.add(cross);
+  let firing = false, fireCd = 0, side = 1;
+  const fb = $('fire');
+  fb.addEventListener('pointerdown', e => { firing = true; e.preventDefault(); });
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => fb.addEventListener(t, () => firing = false));
+
+  function shoot(pos, dir, speed, enemy) {
+    const m = new THREE.Mesh(enemy ? bGeoE : bGeoP, enemy ? bMatE : bMatP);
+    m.position.copy(pos); scene.add(m);
+    bullets.push({ m, vel: dir.clone().multiplyScalar(speed), life: enemy ? 4 : 2.2, enemy });
+  }
+  function explode(pos, size) {
+    const m = new THREE.Mesh(new THREE.SphereGeometry(6 * size, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffa030, transparent: true, opacity: 1 }));
+    m.position.copy(pos); scene.add(m); fx.push({ m, t: 0 });
+  }
+  function hurt(n) {
+    st.hp -= n;
+    const f = $('flash'); f.style.transition = 'none'; f.style.opacity = 1;
+    requestAnimationFrame(() => { f.style.transition = 'opacity .35s'; f.style.opacity = 0; });
+    if (st.hp <= 0) die('💥 Abbattuto!');
+  }
+  function die(msg) {
+    if (!st.alive) return;
+    st.alive = false; plane.visible = false;
+    explode(plane.position, 2.5); say(msg, 1800);
+    setTimeout(reset, 1800);
+  }
+  function resetCombat() {
+    bullets.forEach(b => scene.remove(b.m)); bullets.length = 0;
+    enemies.forEach(e => scene.remove(e.mesh)); enemies.length = 0;
+    fx.forEach(f => scene.remove(f.m)); fx.length = 0;
+  }
+  function makeEnemy() {
+    const g = new THREE.Group();
+    const dark = new THREE.MeshLambertMaterial({ color: 0x3a3f47 }), red = new THREE.MeshLambertMaterial({ color: 0xb01818 });
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(1.1, 0.6, 9, 8).rotateX(Math.PI / 2), dark));
+    const n = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 8).rotateX(-Math.PI / 2), red); n.position.z = -5.5; g.add(n);
+    const w = new THREE.Mesh(new THREE.BoxGeometry(13, 0.2, 2.6), dark); w.position.z = -0.5; g.add(w);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(5, 0.15, 1.4), dark); t.position.set(0, 0.2, 4); g.add(t);
+    const f = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.2, 1.6), red); f.position.set(0, 1.2, 4); g.add(f);
+    return g;
+  }
+  function spawnEnemy() {
+    const a = Math.random() * Math.PI * 2, d = 1300 + Math.random() * 600;
+    const x = st.x + Math.cos(a) * d, z = st.z + Math.sin(a) * d;
+    const mesh = makeEnemy();
+    mesh.position.set(x, Math.max(height(x, z), 0) + 120 + Math.random() * 250, z);
+    scene.add(mesh);
+    enemies.push({ mesh, hp: 3, speed: 80 + Math.random() * 30, cd: 2 + Math.random() * 2, brk: 0, burst: 0 });
+  }
+  function updateEnemies(dt) {
+    while (enemies.length < 3) spawnEnemy();
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const e = enemies[i], p = e.mesh.position;
+      tmp.copy(plane.position).sub(p);
+      const dist = tmp.length();
+      if (dist > 4000) { scene.remove(e.mesh); enemies.splice(i, 1); continue; }
+      ef.set(0, 0, -1).applyQuaternion(e.mesh.quaternion);
+      if (dist < 180) e.brk = 2.5;
+      if (e.brk > 0 || !st.alive) { e.brk -= dt; tgt.copy(p).addScaledVector(ef, 600); }
+      else tgt.copy(plane.position).addScaledVector(fwd, st.speed * 0.8);
+      const ground = Math.max(height(p.x, p.z), height(p.x + ef.x * 250, p.z + ef.z * 250), 0) + 90;
+      if (p.y < ground) tgt.y = p.y + 400;
+      else if (p.y > 1400) tgt.y = p.y - 300;
+      m4.lookAt(p, tgt, UP); qT.setFromRotationMatrix(m4);
+      e.mesh.quaternion.rotateTowards(qT, 0.8 * dt);
+      p.addScaledVector(ef, e.speed * (dist > 1500 ? 1.5 : 1) * dt);
+
+      e.cd -= dt;
+      if (st.alive && e.cd <= 0 && dist < 800 && dist > 120 && ef.dot(tmp.normalize()) > 0.985) {
+        aim.copy(plane.position).addScaledVector(fwd, st.speed * dist / 280).sub(p).normalize();
+        aim.x += (Math.random() - .5) * 0.04; aim.y += (Math.random() - .5) * 0.04; aim.z += (Math.random() - .5) * 0.04;
+        aim.normalize();
+        shoot(tmp.copy(p).addScaledVector(ef, 8), aim, 280, true);
+        e.cd = (++e.burst % 5 === 0) ? 2.5 : 0.22;
+      }
+      if (st.alive && dist < 14) {
+        explode(p, 2); scene.remove(e.mesh); enemies.splice(i, 1); hurt(40);
+      }
+    }
+  }
+  function updateBullets(dt) {
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.m.position.addScaledVector(b.vel, dt); b.life -= dt;
+      let dead = b.life <= 0;
+      if (!dead && b.enemy) {
+        if (st.alive && b.m.position.distanceTo(plane.position) < 8) { hurt(8); dead = true; }
+      } else if (!dead) {
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (b.m.position.distanceTo(e.mesh.position) < 14) {
+            dead = true; e.hp--; explode(b.m.position, 0.3);
+            if (e.hp <= 0) {
+              explode(e.mesh.position, 2); scene.remove(e.mesh); enemies.splice(j, 1);
+              st.kills++; say('🎯 Nemico abbattuto!', 900);
+            }
+            break;
+          }
+        }
+      }
+      if (dead) { scene.remove(b.m); bullets.splice(i, 1); }
+    }
+  }
+  function combat(dt) {
+    fireCd -= dt;
+    if (st.alive && (firing || keys[' ']) && fireCd <= 0) {
+      fireCd = 0.11; side = -side;
+      tmp.set(side * 3, -0.3, -4).applyEuler(plane.rotation).add(plane.position);
+      shoot(tmp, fwd, st.speed + 340, false);
+    }
+    updateEnemies(dt);
+    updateBullets(dt);
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const f = fx[i]; f.t += dt;
+      f.m.scale.setScalar(1 + f.t * 3); f.m.material.opacity = Math.max(0, 1 - f.t / 0.7);
+      if (f.t > 0.7) { scene.remove(f.m); f.m.geometry.dispose(); f.m.material.dispose(); fx.splice(i, 1); }
+    }
   }
 
   // ---------- Sensori ----------
@@ -242,18 +382,18 @@
 
     // collisione
     if (st.y < Math.max(height(st.x, st.z), 0) + 3) {
-      st.alive = false; say('💥 Schianto! Ricomincio…', 1800);
-      setTimeout(reset, 1800);
+      die('💥 Schianto! Ricomincio…');
     }
     // anello
     if (ring.position.distanceTo(plane.position) < 46) {
-      st.score++; say('✔ Anello! +1', 900); newRing();
+      st.score++; st.hp = Math.min(100, st.hp + 15); say('✔ Anello! +1', 900); newRing();
     } else if (ring.position.distanceTo(plane.position) > 2500) newRing();
   }
 
   function frame() {
     const dt = Math.min(clock.getDelta(), 0.05);
     step(dt);
+    combat(dt);
 
     updateTerrain(st.x, st.z);
     water.position.set(st.x, 0, st.z);
@@ -276,7 +416,21 @@
     // HUD
     $('spd').textContent = Math.round(st.speed * 3.6) + ' km/h';
     $('alt').textContent = Math.round(st.y) + ' m';
-    $('score').textContent = 'Anelli: ' + st.score;
+    $('score').textContent = 'Anelli ' + st.score + ' · Abbattuti ' + st.kills;
+    $('hp').textContent = '❤ ' + Math.max(0, Math.round(st.hp));
+    let ne = null, nd = 1e9;
+    enemies.forEach(e => { const d = e.mesh.position.distanceTo(plane.position); if (d < nd) { nd = d; ne = e; } });
+    $('arrow2').style.opacity = ne ? 1 : 0;
+    cross.visible = st.alive;
+    cross.position.copy(plane.position).addScaledVector(fwd, 200);
+    cross.lookAt(camera.position);
+    cross.material.color.set(0xffee55);
+    if (ne) {
+      const d = ne.mesh.position.clone().sub(plane.position);
+      const a2 = Math.atan2(-d.x, -d.z) - st.yaw;
+      $('arrowPath2').setAttribute('transform', 'rotate(' + (-THREE.MathUtils.radToDeg(a2)) + ')');
+      if (nd < 900 && fwd.dot(d.normalize()) > 0.997) cross.material.color.set(0xff3322);
+    }
     const to = ring.position.clone().sub(plane.position);
     const ang = Math.atan2(-to.x, -to.z) - st.yaw;   // 0 = dritto davanti
     $('arrowPath').setAttribute('transform', 'rotate(' + (-THREE.MathUtils.radToDeg(ang)) + ')');
