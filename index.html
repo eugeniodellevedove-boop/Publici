@@ -13,6 +13,7 @@
   #arrow, #arrow2 { position: fixed; top: 44px; left: 50%; width: 34px; height: 34px; pointer-events: none; }
   #arrow { margin-left: -47px; }
   #arrow2 { margin-left: 13px; }
+  #pause { position: fixed; top: 38px; right: 14px; width: 44px; height: 44px; padding: 0; font-size: 20px; }
   #fire { position: fixed; right: 190px; bottom: 22px; width: 96px; height: 96px; border-radius: 50%; background: rgba(220,40,30,.75); border: 3px solid #fff; font-size: 15px; letter-spacing: 1px; touch-action: none; }
   #fire:active { background: rgba(255,90,60,.95); }
   #flash { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 90px rgba(255,0,0,.9); opacity: 0; transition: opacity .35s; }
@@ -37,6 +38,7 @@
 <div id="flash"></div>
 <div id="msg"></div>
 <button id="fire">FUOCO</button>
+<button id="pause">⏸</button>
 <div id="throttleWrap"><input id="throttle" type="range" min="0" max="100" value="70"></div>
 <button class="pedal" id="brake">FRENO</button>
 <button class="pedal" id="gas">GAS<br><span id="gasv">70%</span></button>
@@ -245,7 +247,7 @@
     const mesh = makeEnemy();
     mesh.position.set(x, Math.max(height(x, z), 0) + 120 + Math.random() * 250, z);
     scene.add(mesh);
-    enemies.push({ mesh, hp: 3, speed: 80 + Math.random() * 30, cd: 2 + Math.random() * 2, brk: 0, burst: 0 });
+    enemies.push({ mesh, hp: 8, speed: 80 + Math.random() * 30, cd: 2 + Math.random() * 2, brk: 0, burst: 0 });
   }
   function updateEnemies(dt) {
     while (enemies.length < 3) spawnEnemy();
@@ -370,15 +372,15 @@
     }
     // pedali stile auto: gas sale piano, rilasciato cala lentamente, freno cala veloce
     const th = $('throttle'), gasOn = pedal.gas || keys.w || keys.W, brakeOn = pedal.brake || keys.s || keys.S;
-    th.value = THREE.MathUtils.clamp(+th.value + (gasOn ? 45 : brakeOn ? -110 : -6) * dt, 0, 100);
+    th.value = THREE.MathUtils.clamp(+th.value + (gasOn ? 45 : brakeOn ? -110 : -30) * dt, 0, 100);
     const dead = x => Math.abs(x) < 0.06 ? 0 : x;
     const ir = dead(input.roll), ip = dead(input.pitch);
 
     if (!st.alive) return;
     const k = 1 - Math.exp(-dt * 4);
     st.roll += (ir * 1.15 - st.roll) * k;               // max ~66°
-    const lift = Math.min(1, Math.pow(st.speed / 90, 2));   // poca velocita' = poca portanza
-    st.pitch += (ip * 0.7 - (1 - lift) * 0.5 - st.pitch) * k;   // max ~40°
+    const lift = Math.min(1, Math.pow(st.speed / 100, 2));   // poca velocita' = poca portanza
+    st.pitch += (ip * 0.7 - (1 - lift) * 0.7 - st.pitch) * k;   // max ~40°
     st.yaw -= Math.sin(st.roll) * 0.9 * dt * (1.1 - st.speed / 400);
 
     plane.rotation.set(st.pitch, st.yaw, -st.roll);
@@ -388,7 +390,7 @@
     st.speed = Math.max(5, st.speed + (60 * thr - 0.005 * st.speed * st.speed - 40 * fwd.y - (brakeOn ? 35 : 0)) * dt);
     st.x += fwd.x * st.speed * dt; st.y += fwd.y * st.speed * dt; st.z += fwd.z * st.speed * dt;
     // gravita': l'aereo scende tanto piu' quanto meno portanza ha
-    st.y -= 32 * (1 - lift) * dt;
+    st.y -= 55 * (1 - lift) * dt;
     if (st.y > 1600) st.y = 1600;
     plane.position.set(st.x, st.y, st.z);
     prop.rotation.z += dt * 40;
@@ -403,10 +405,21 @@
     } else if (ring.position.distanceTo(plane.position) > 2500) newRing();
   }
 
+  let paused = false;
+  function setPause(on) {
+    if (on === paused || $('start').style.display !== 'none') return;
+    paused = on;
+    $('pause').textContent = on ? '▶' : '⏸';
+    say(on ? '⏸ PAUSA' : '', on ? 1e9 : 1);
+    if (on) $('msg').style.opacity = 1;
+  }
+  $('pause').addEventListener('click', () => setPause(!paused));
+  addEventListener('keydown', e => { if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') setPause(!paused); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) setPause(true); });
+
   function frame() {
     const dt = Math.min(clock.getDelta(), 0.05);
-    step(dt);
-    combat(dt);
+    if (!paused) { step(dt); combat(dt); }
 
     updateTerrain(st.x, st.z);
     water.position.set(st.x, 0, st.z);
